@@ -28,12 +28,19 @@ def extract_chapter_timestamps(description):
     return filtered_lines
 
 
-# Retorna uma tupla contendo os int de hora, minuto, segundo e o nome do capítulo
+# Retorna o tempo de início e o título do capítulo
 def separate_time_name(str):
     out = (str.replace("\t", " ").replace("\u3000", " ").replace("-", " ")).split()
     time_parts = out[0].split(":")
 
-    return (tuple(map(int, time_parts)), out[1:])
+    if len(time_parts) == 1:
+        time = int(time_parts[0])
+    elif len(time_parts) == 2:
+        time = int(time_parts[0]) * 60 + int(time_parts[1])
+    else:
+        time = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
+
+    return (time, out[1:])
 
 
 def get_chapter_times(lines):
@@ -44,53 +51,50 @@ def get_chapter_times(lines):
 
         ch_list.append({"title": title, "start_time": start})
 
+    for i in range(len(ch_list)):
+        try:
+            ch_list[i]["end_time"] = ch_list[i + 1]["start_time"] - 1
+        except:
+            ch_list[i]["end_time"] = -1
+
     return ch_list
 
 
-LINK = "https://www.youtube.com/watch?v=0wTf_bbkW2U"
-VIDEO_NAME = "video.mp4"
+LINK = input("Link do vídeo: ")
 
 yt = YouTube(LINK)
 print(yt.title)
 description = get_description(LINK)
 lines = extract_chapter_timestamps(description)
 
-if not os.path.exists(VIDEO_NAME):
-    sys.stderr.write(
-        # "Error downloading videos. Check that you've installed youtube-dl.\n"
-        "Couldn't find video file.\n"
-    )
-    sys.exit(1)
-
 chapters = get_chapter_times(lines)
-print(chapters)
+for i, chapter in enumerate(chapters):
+    print(i + 1, chapter)
 
-for chapter in chapters:
-    print(f"Nome = {chapter['title']}")
+chapters_index = input("Capítulos a serem extraídos: ")
+chapters_index = [int(index) - 1 for index in chapters_index.split(",")]
 
-# start_time = (0, 0, 0)
-# audio = AudioFileClip(VIDEO_NAME)
-# for i in range(0, len(lines)):
-#     # Pegando o valor do capítulo atual e o tempo que começa o recorte
-#     start_time, name = separate_time_name(lines[i])
-#     print(start_time, name)
-#     end_time = -1
+selected_chapters = []
+for i in chapters_index:
+    selected_chapters.append(chapters[i])
 
-#     # Procurando o final do recorte
-#     try:
-#         next_line = lines[i + 1]
-#         end_time, next_name = separate_time_name(next_line)
-#         print("End time: ", end_time)
+for chapter in selected_chapters:
+    title = chapter["title"]
 
-#     except IndexError:
-#         print("Fim da lista")
-#         pass
+    yt_opts = {
+        "download_ranges": yt_dlp.utils.download_range_func(
+            None, [(chapter["start_time"], chapter["end_time"])]
+        ),
+        "force_keyframes_at_cuts": True,
+        "format": "wav/bestaudio/best",
+        "postprocessors": [
+            {  # Extract audio using ffmpeg
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "wav",
+            }
+        ],
+        "outtmpl": f"output/{title}",
+    }
 
-#     if end_time == -1:
-#         sc = audio.subclip(start_time)
-#     else:
-#         sc = audio.subclip(start_time, end_time)
-
-#     sc.write_audiofile(
-#         "output/" + yt.title + name + ".wav", nbytes=4, codec="pcm_s16le"
-#     )
+    with yt_dlp.YoutubeDL(yt_opts) as ydl:
+        ydl.download(LINK)
